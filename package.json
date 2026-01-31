@@ -1,0 +1,27 @@
+{
+  "name": "gird-orm",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "gird": "./bin/gird.ts"
+  },
+  "scripts": {
+    "test": "vitest",
+    "gird": "tsx bin/gird.ts"
+  },
+  "dependencies": {
+    "@types/pg": "^8.16.0",
+    "commander": "^11.0.0",
+    "dotenv": "^17.2.3",
+    "mysql2": "^3.16.2",
+    "pg": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}
