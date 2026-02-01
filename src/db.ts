@@ -5,7 +5,9 @@ import { Migrator } from "./core/migrate";
 import { PostgresAdapter, TransactionAdapter } from "./drivers/postgres";
 
 export class GirdDB {
-  private adapter: DBAdapter;
+  // 👇 FIX: Changed from 'private' to 'public readonly'
+  // This allows outside code to use db.adapter!
+  public readonly adapter: DBAdapter;
 
   constructor(adapter: DBAdapter) {
     this.adapter = adapter;
@@ -20,7 +22,6 @@ export class GirdDB {
   }
 
   // 2. Define a Model
-  // ✅ FIX: Passed 'this.adapter' FIRST, then 'schema'
   table<T extends Table>(schema: T) {
     return new Model<Infer<T>>(this.adapter, schema);
   }

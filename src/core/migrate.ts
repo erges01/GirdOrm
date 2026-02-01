@@ -33,8 +33,15 @@ export class Migrator {
       const fileUrl = pathToFileURL(filePath).href;
       
       const module = await import(fileUrl);
-      const tableDef = Object.values(module).find((exp) => exp instanceof Table) as Table;
-      if (tableDef) tables.push(tableDef);
+      
+      // ✅ FIX: "Duck Typing" Check
+      // Instead of 'instanceof Table', we check if it LOOKS like a table.
+      // This fixes the bug where npm link/install causes two different Table classes.
+      const tableDef = Object.values(module).find((exp: any) => exp && exp.tableName && exp.columns) as Table;
+      
+      if (tableDef) {
+          tables.push(tableDef);
+      }
     }
 
     // 3. The Retry Loop (Topological Sort Strategy)
@@ -108,7 +115,6 @@ export class Migrator {
       const existingCols = await this.db.queryRaw(colCheckSql);
       
       // FIX: Lowercase everything for comparison
-      // Postgres returns 'authorid', your code says 'authorId'
       const existingColNames = existingCols.map((c: any) => c.column_name.toLowerCase());
 
       for (const [colName, colDef] of Object.entries(table.columns)) {
