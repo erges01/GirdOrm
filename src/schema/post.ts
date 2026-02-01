@@ -1,12 +1,24 @@
-import { table, int, text } from "../core/table";
+import { table, int, text, Infer } from "../core/table";
 
-export const PostTable = table("posts", {
-  // 1. Primary Key (Auto-increments 1, 2, 3...)
-  id: int().primaryKey(),
-  
-  title: text(),
-  content: text(),
+export const PostTable = table(
+  "posts",
+  {
+    // Columns
+    id: int().primaryKey(),
+    title: text(),
+    content: text(),
+    authorid: int().references("users", "id")
+  },
+  // Relations (This was missing!)
+  {
+    users: {
+      type: "belongsTo",     // Type of relation
+      table: "users",        // Target table
+      localKey: "authorid",  // The column in *this* table (posts.authorid)
+      foreignKey: "id"       // The column in the *target* table (users.id)
+    }
+  }
+);
 
-  // 2. Foreign Key (Links this post to a specific User)
-  authorId: int().references("users", "id")
-});
+// Add the type definition so TypeScript knows 'users' might exist on a Post
+export type Post = Infer<typeof PostTable> & { users?: any };

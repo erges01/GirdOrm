@@ -4,24 +4,25 @@
   "type": "module",
   "main": "src/index.ts",
   "bin": {
-    "gird": "./bin/gird.ts"
+    "gird": "./bin/wrapper.js"
   },
   "scripts": {
-    "test": "vitest",
-    "gird": "tsx bin/gird.ts"
+    "test": "tsx src/playground.ts",
+    "migrate": "tsx bin/gird.ts migrate",
+    "init": "tsx bin/gird.ts init"
   },
   "dependencies": {
     "@types/pg": "^8.16.0",
+    "chalk": "^5.6.2",
     "commander": "^11.0.0",
     "dotenv": "^17.2.3",
-    "mysql2": "^3.16.2",
+    "figlet": "^1.10.0",
     "pg": "^8.18.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.0",
+    "@types/figlet": "^1.7.0",
     "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
-    "typescript": "^5.0.0",
-    "vitest": "^1.0.0"
+    "typescript": "^5.0.0"
   }
 }

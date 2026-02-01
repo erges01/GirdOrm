@@ -7,15 +7,12 @@ export class QueryBuilder {
   private _conditions: string[] = [];
   private _params: any[] = [];
   private _joins: string[] = []; 
-  
-  // NEW: Store the Adapter so we can ask for placeholders
-  private _adapter?: DBAdapter;
+  private _groupBy: string[] = []; // <-- NEW: Needed for JSON_AGG
 
-  // NEW: Support Update and Delete operations
+  private _adapter?: DBAdapter;
   private _operation: "SELECT" | "INSERT" | "UPDATE" | "DELETE" = "SELECT";
   private _data: Record<string, any> = {}; 
 
-  // Updated Constructor: Accepts an optional adapter
   constructor(table: Table, adapter?: DBAdapter) {
     this._table = table;
     this._adapter = adapter;
@@ -23,28 +20,69 @@ export class QueryBuilder {
 
   select(...columns: string[]) {
     this._operation = "SELECT";
-    if (columns.length > 0) this._columns = columns;
+    if (columns.length > 0 && columns[0] !== "*") {
+        this._columns = columns;
+    } else {
+        this._columns = [`"${this._table.tableName}".*`];
+    }
     return this;
   }
 
+  // --- THE MISSING METHOD: Handles Relations ---
+  with(relationName: string) {
+    const rel = this._table.relations[relationName];
+    if (!rel) throw new Error(`Relation ${relationName} not found on ${this._table.tableName}`);
+
+    if (rel.type === "belongsTo") {
+        // Standard Left Join (Post -> User)
+        this._joins.push(
+            `LEFT JOIN "${rel.table}" ON "${this._table.tableName}"."${rel.localKey}" = "${rel.table}"."${rel.foreignKey}"`
+        );
+        // Select the related data as a JSON object
+        this._columns.push(`to_json("${rel.table}".*) as "${relationName}"`);
+    } 
+    else if (rel.type === "hasMany") {
+        // Advanced JSON_AGG (User -> Posts)
+        this._joins.push(
+            `LEFT JOIN "${rel.table}" ON "${this._table.tableName}"."${rel.localKey}" = "${rel.table}"."${rel.foreignKey}"`
+        );
+        this._columns.push(
+            `COALESCE(json_agg("${rel.table}".*) FILTER (WHERE "${rel.table}".id IS NOT NULL), '[]') as "${relationName}"`
+        );
+        // We MUST group by the main table's ID when aggregating
+        this._groupBy.push(`"${this._table.tableName}".id`);
+    }
+
+    return this;
+  }
+
+  // --- Prisma-style filters ({ gt: 18 }) ---
   where(conditions: Record<string, any>) {
     Object.entries(conditions).forEach(([key, value]) => {
-      // Smart fix: If key doesn't have a dot (id), make it (users.id) to avoid ambiguity
-      const colName = key.includes(".") ? key : `${this._table.tableName}.${key}`;
+      // Use quotes for safety: "table"."column"
+      const colName = key.includes(".") ? key : `"${this._table.tableName}"."${key}"`;
       
-      // We push a generic "?" for now. 
-      // The toSQL() method will convert this to "$1" for Postgres later.
-      this._conditions.push(`${colName} = ?`);
-      this._params.push(value);
+      // 1. Handle Operators: { age: { gt: 18 } }
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        const ops = value as Record<string, any>;
+        
+        Object.entries(ops).forEach(([op, val]) => {
+            // We use a placeholder (??) to be replaced later by $1/$2
+            this._params.push(val);
+            
+            if (op === "gt") this._conditions.push(`${colName} > ??`);
+            else if (op === "lt") this._conditions.push(`${colName} < ??`);
+            else if (op === "gte") this._conditions.push(`${colName} >= ??`);
+            else if (op === "lte") this._conditions.push(`${colName} <= ??`);
+            else if (op === "contains") this._conditions.push(`${colName} LIKE ??`);
+        });
+      } 
+      // 2. Handle Simple Equality: { name: "Tunde" }
+      else {
+        this._conditions.push(`${colName} = ??`);
+        this._params.push(value);
+      }
     });
-    return this;
-  }
-
-  // Usage: .leftJoin('users', 'authorId', 'id')
-  leftJoin(otherTable: string, localCol: string, otherCol: string) {
-    this._joins.push(
-      `LEFT JOIN ${otherTable} ON ${this._table.tableName}.${localCol} = ${otherTable}.${otherCol}`
-    );
     return this;
   }
 
@@ -54,28 +92,25 @@ export class QueryBuilder {
     return this;
   }
 
-  // --- NEW: Update Mode ---
   update(data: Record<string, any>) {
     this._operation = "UPDATE";
     this._data = data;
     return this;
   }
 
-  // --- NEW: Delete Mode ---
   delete() {
     this._operation = "DELETE";
     return this;
   }
 
-  // --- THE COMPLEX PART: Generating SQL with correct placeholders ---
+  // --- SQL GENERATION ---
   toSQL(): { sql: string; params: any[] } {
     let paramCounter = 0;
     
-    // Helper: Returns "?" or "$1" and increments counter
+    // Helper: Generates $1, $2, $3...
     const nextParam = () => {
-        const p = this._adapter ? this._adapter.getPlaceholder(paramCounter) : "?";
         paramCounter++;
-        return p;
+        return this._adapter ? this._adapter.getPlaceholder(paramCounter - 1) : `$${paramCounter}`;
     };
 
     // 1. INSERT Logic
@@ -83,11 +118,11 @@ export class QueryBuilder {
       const keys = Object.keys(this._data);
       const values = Object.values(this._data);
       
-      // Generate "$1, $2" or "?, ?" based on adapter
       const placeholders = keys.map(() => nextParam()).join(", ");
+      const columns = keys.map(k => `"${k}"`).join(", "); 
       
       return {
-        sql: `INSERT INTO ${this._table.tableName} (${keys.join(", ")}) VALUES (${placeholders});`,
+        sql: `INSERT INTO "${this._table.tableName}" (${columns}) VALUES (${placeholders}) RETURNING *;`,
         params: values,
       };
     }
@@ -97,40 +132,42 @@ export class QueryBuilder {
       const keys = Object.keys(this._data);
       const values = Object.values(this._data);
       
-      // "name = $1, email = $2"
-      const setClause = keys.map((k) => `${k} = ${nextParam()}`).join(", ");
+      const setClause = keys.map((k) => `"${k}" = ${nextParam()}`).join(", ");
       
-      let sql = `UPDATE ${this._table.tableName} SET ${setClause}`;
+      let sql = `UPDATE "${this._table.tableName}" SET ${setClause}`;
       
-      // Handle WHERE clause params (they come after SET params)
       if (this._conditions.length > 0) {
-        const whereClause = this._conditions.map(c => c.replace("?", nextParam())).join(" AND ");
+        const whereClause = this._conditions.map(c => c.replace("??", nextParam())).join(" AND ");
         sql += ` WHERE ${whereClause}`;
       }
       
-      return { sql: sql + ";", params: [...values, ...this._params] };
+      return { sql: sql + " RETURNING *;", params: [...values, ...this._params] };
     }
 
     // 3. DELETE Logic
     if (this._operation === "DELETE") {
-      let sql = `DELETE FROM ${this._table.tableName}`;
+      let sql = `DELETE FROM "${this._table.tableName}"`;
       if (this._conditions.length > 0) {
-        const whereClause = this._conditions.map(c => c.replace("?", nextParam())).join(" AND ");
+        const whereClause = this._conditions.map(c => c.replace("??", nextParam())).join(" AND ");
         sql += ` WHERE ${whereClause}`;
       }
       return { sql: sql + ";", params: this._params };
     }
 
-    // 4. SELECT Logic (Default)
-    const selection = this._columns.length > 0 ? this._columns.join(", ") : `${this._table.tableName}.*`;
-    let sql = `SELECT ${selection} FROM ${this._table.tableName}`;
+    // 4. SELECT Logic
+    const selection = this._columns.join(", ");
+    let sql = `SELECT ${selection} FROM "${this._table.tableName}"`;
     
     if (this._joins.length > 0) sql += ` ${this._joins.join(" ")}`;
     
     if (this._conditions.length > 0) {
-       // Replace "?" with real placeholders
-       const whereClause = this._conditions.map(c => c.replace("?", nextParam())).join(" AND ");
+       const whereClause = this._conditions.map(c => c.replace("??", nextParam())).join(" AND ");
        sql += ` WHERE ${whereClause}`;
+    }
+
+    // 5. GROUP BY Logic (Crucial for hasMany)
+    if (this._groupBy.length > 0) {
+        sql += ` GROUP BY ${this._groupBy.join(", ")}`;
     }
     
     return { sql: sql + ";", params: this._params };

@@ -1,22 +1,14 @@
-// src/core/adapter.ts
-
-export interface QueryResult {
-  rows: any[];
-  affectedRows?: number; // Needed for UPDATE/DELETE checks
-}
-
+// A generic interface for ANY database driver (Postgres, SQLite, MySQL)
 export interface DBAdapter {
-  // 1. Connect to the database
-  connect(): Promise<void>;
-  
-  // 2. Run a query and return unified results
-  query(sql: string, params: any[]): Promise<QueryResult>;
-  
-  // 3. Disconnect
-  disconnect(): Promise<void>;
+  // Generic query: Returns an array of type T (the rows)
+  query<T>(sql: string, params?: any[]): Promise<T[]>;
 
-  // 4. Handle dialect differences
-  // SQLite uses "?"
-  // Postgres uses "$1", "$2", "$3"...
+  // Helper for $1 (Postgres) vs ? (SQLite) placeholders
   getPlaceholder(index: number): string;
+
+  // Cleanup connection
+  close(): Promise<void>;
+
+  // Optional: For Transactions (returns a raw client)
+  getClient?(): Promise<any>; 
 }

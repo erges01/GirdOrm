@@ -1,6 +1,8 @@
 import { DBAdapter } from "./core/adapter";
 import { Table, Infer } from "./core/table";
 import { Model } from "./core/model";
+import { Migrator } from "./core/migrate";
+import { PostgresAdapter, TransactionAdapter } from "./drivers/postgres";
 
 export class GirdDB {
   private adapter: DBAdapter;
@@ -9,32 +11,62 @@ export class GirdDB {
     this.adapter = adapter;
   }
 
-  // 1. Initialize Connection
+  // 1. Init: Run Migrations automatically if using Postgres
   async init() {
-    await this.adapter.connect();
+    if (this.adapter instanceof PostgresAdapter) {
+      const migrator = new Migrator(this, "./src/schema");
+      await migrator.sync();
+    }
   }
 
-  // 2. Define a Model (Connects Schema -> Adapter)
+  // 2. Define a Model
+  // ✅ FIX: Passed 'this.adapter' FIRST, then 'schema'
   table<T extends Table>(schema: T) {
     return new Model<Infer<T>>(this.adapter, schema);
   }
 
-  // --- NEW HELPERS (Fixes the Migrator Errors) ---
-
-  // Helper A: Run a command that doesn't return rows (e.g. CREATE TABLE, INSERT)
-  async execute(sql: string) {
-    return await this.adapter.query(sql, []);
+  // Helper A: Run command (Insert/Create)
+  async execute(sql: string, params: any[] = []) {
+    return await this.adapter.query(sql, params);
   }
 
-  // Helper B: Run a query that returns raw rows (e.g. PRAGMA table_info)
-  // This is used by the Migrator to check if tables exist
-  async queryRaw(sql: string) {
-    const res = await this.adapter.query(sql, []);
-    return res.rows; 
+  // Helper B: Run query (Select)
+  async queryRaw(sql: string, params: any[] = []) {
+    return await this.adapter.query(sql, params);
   }
 
   // 3. Close Connection
   async close() {
-    await this.adapter.disconnect();
+    await this.adapter.close();
+  }
+
+  // --- 4. Transaction Support ---
+  async transaction(callback: (tx: GirdDB) => Promise<void>) {
+    if (!(this.adapter instanceof PostgresAdapter)) {
+      throw new Error("Transactions are only supported on the main PostgresAdapter.");
+    }
+
+    console.log("🔒 Starting Transaction...");
+    const client = await this.adapter.getClient();
+
+    try {
+      await client.query("BEGIN");
+
+      // Create a 'Clone' of GirdDB using the locked client
+      const txAdapter = new TransactionAdapter(client);
+      const txDB = new GirdDB(txAdapter);
+
+      await callback(txDB);
+
+      await client.query("COMMIT");
+      console.log("🔓 Transaction Committed.");
+
+    } catch (e) {
+      await client.query("ROLLBACK");
+      console.error("🛑 Transaction Failed! Rolling back changes.");
+      throw e;
+    } finally {
+      client.release();
+    }
   }
 }

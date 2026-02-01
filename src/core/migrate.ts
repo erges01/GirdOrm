@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { GirdDB } from "../db"; 
 import { Table } from "./table";
+import { pathToFileURL } from "url"; // Required for Windows import paths
 
 export class Migrator {
   private db: GirdDB;
@@ -15,19 +16,28 @@ export class Migrator {
   async sync() {
     console.log("🔄 Syncing Database...");
     
-    // 1. Load ALL tables into memory first
+    // 1. Get absolute path to schema folder (Fixes Windows/Path issues)
+    const absoluteSchemaPath = path.resolve(process.cwd(), this.schemaDir);
+
+    if (!fs.existsSync(absoluteSchemaPath)) {
+      throw new Error(`Schema folder not found at: ${absoluteSchemaPath}`);
+    }
+
+    // 2. Load ALL tables into memory first
     const tables: Table[] = [];
-    const files = fs.readdirSync(this.schemaDir).filter((f) => f.endsWith(".ts") || f.endsWith(".js"));
+    const files = fs.readdirSync(absoluteSchemaPath).filter((f) => f.endsWith(".ts") || f.endsWith(".js"));
     
     for (const file of files) {
-      const filePath = path.join(this.schemaDir, file);
-      // FIX: Add timestamp to avoid caching old schema files during development
-      const module = await import("file://" + filePath + "?t=" + Date.now());
+      const filePath = path.join(absoluteSchemaPath, file);
+      // FIX: Use pathToFileURL for Windows compatibility
+      const fileUrl = pathToFileURL(filePath).href;
+      
+      const module = await import(fileUrl);
       const tableDef = Object.values(module).find((exp) => exp instanceof Table) as Table;
       if (tableDef) tables.push(tableDef);
     }
 
-    // 2. The Retry Loop (Topological Sort Strategy)
+    // 3. The Retry Loop (Topological Sort Strategy)
     let pending = [...tables];
     let attempts = 0;
     const maxAttempts = pending.length * 2; 
@@ -107,7 +117,7 @@ export class Migrator {
           console.log(`      ➕ Adding column: ${colName}`);
           
           // Use quotes around column name to preserve casing if needed
-          const sql = `ALTER TABLE ${table.tableName} ADD COLUMN "${colName}" ${colDef.type}`;
+          const sql = `ALTER TABLE "${table.tableName}" ADD COLUMN "${colName}" ${colDef.type}`;
           await this.db.execute(sql);
         }
       }

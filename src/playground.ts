@@ -1,17 +1,12 @@
-import "dotenv/config"; // Load environment variables
+import "dotenv/config"; 
 import { GirdDB } from "./db";
 import { PostgresAdapter } from "./drivers/postgres"; 
 import { UserTable } from "./schema/user";
 import { PostTable } from "./schema/post";
 
-// 1. Get URL from .env (Secure!)
 const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error("❌ DATABASE_URL is missing!");
 
-if (!connectionString) {
-  throw new Error("❌ DATABASE_URL is missing from .env file!");
-}
-
-// 2. Initialize
 const adapter = new PostgresAdapter(connectionString);
 const db = new GirdDB(adapter);
 
@@ -24,45 +19,37 @@ async function run() {
   await db.init();
 
   try {
-    // --- 1. Create User ---
-    console.log("\n1. Creating User...");
-    try {
-        await User.create({
-            name: "Tunde",
-            email: "tunde@funaab.edu.ng",
-            isAdmin: true
-        });
-        console.log("✅ User 'Tunde' created.");
-    } catch (e) { 
-        console.log("   (User might already exist)"); 
-    }
-    
-    // --- FETCH USER (The Fix) ---
+    // --- 1. SETUP: Create Tunde ---
+    let tunde;
     const users = await User.find({ email: "tunde@funaab.edu.ng" });
     
-    // 🛑 THE FIX: Add '!' here once. 
-    // This forces TypeScript to accept that the user exists.
-    const tunde = users[0]!; 
-
-    if (!tunde) {
-        throw new Error("CRITICAL: User not found!");
+    if (users.length === 0) {
+        console.log("Creating Tunde...");
+        // FIX: isAdmin -> isadmin
+        await User.create({ name: "Tunde", email: "tunde@funaab.edu.ng", isadmin: true });
+        
+        const newUsers = await User.find({ email: "tunde@funaab.edu.ng" });
+        tunde = newUsers[0]!;
+    } else {
+        tunde = users[0]!;
     }
-    console.log("👤 User Found:", tunde);
-
-    // --- 2. Create Post ---
-    // Now we don't need '!' anymore because 'tunde' is already safe
-    console.log(`\n2. Creating Post for Tunde (ID: ${tunde.id})...`);
     
+    if (!tunde || !tunde.id) {
+        console.error("❌ Critical Error: Tunde was not found or has no ID.");
+        return; 
+    }
+    console.log("👤 User Found:", tunde.name, `(ID: ${tunde.id})`);
+
+    // --- 2. SETUP: Create Post ---
+    console.log(`\n2. Creating Post...`);
     try {
         await Post.create({
             title: "Why GirdORM is cracked",
             content: "It is faster than Prisma.",
-            authorId: tunde.id 
+            authorid: tunde.id  // FIX: authorId -> authorid
         });
         console.log("✅ Post Created!");
-    } catch (e) { 
-        console.log("   (Post might already exist)"); 
-    }
+    } catch (e) { console.log("   (Post might exist)"); }
 
     // --- 3. Ghost Test ---
     console.log("\n3. Testing Foreign Key Constraints...");
@@ -70,7 +57,7 @@ async function run() {
         await Post.create({
             title: "Ghost Post",
             content: "This should not exist.",
-            authorId: 9999
+            authorid: 9999 // FIX: authorId -> authorid
         });
         console.log("❌ ERROR: The database allowed a ghost post!");
     } catch (error: any) {
@@ -81,25 +68,77 @@ async function run() {
         }
     }
 
-    // --- 4. JOIN Test ---
-    console.log("\n4. Testing JOIN...");
+    // --- 4. TEST JOIN (BelongsTo) ---
+    console.log("\n4. Testing JOIN (Post -> User)...");
     
-    const myPosts = await Post.find({ authorId: tunde.id });
+    // FIX: authorId -> authorid
+    const myPosts = await Post.find({ authorid: tunde.id }); 
     
     if (myPosts.length > 0) {
-        const postId = myPosts[0].id;
+        const postId = myPosts[0]!.id;
         const postWithUser: any = await Post.get(postId, { with: "users" });
 
-        console.log("\n📦 RESULT FROM DB:");
-        console.log(JSON.stringify(postWithUser, null, 2));
-
         if (postWithUser?.users?.name === "Tunde") {
-            console.log("\n🎉 SUCCESS: JOIN worked!");
+            console.log("✅ Success: JOIN worked!");
         } else {
-            console.log("\n❌ FAILURE: User not found in post.");
+            console.log("❌ Failure: User not found in post.");
         }
+    }
+
+    // --- 5. TEST UPDATE ---
+    console.log("\n5. Testing UPDATE...");
+    console.log("   Old Name:", tunde.name);
+    await User.update(tunde.id, { name: "Tunde (The Builder)" });
+    const updatedTunde = (await User.get(tunde.id)) as any;
+    console.log("   New Name:", updatedTunde.name);
+
+    // --- 6. TEST DELETE ---
+    console.log("\n6. Testing DELETE...");
+    await Post.create({
+        title: "Delete Me",
+        content: "I am short lived.",
+        authorid: tunde.id // FIX: authorId -> authorid
+    });
+    const tempPosts = await Post.find({ title: "Delete Me" });
+    
+    if (tempPosts.length > 0) {
+        const postToDelete = tempPosts[0]!;
+        console.log(`   Deleting post ID: ${postToDelete.id}`);
+        await Post.delete(postToDelete.id);
+        
+        const check = await Post.get(postToDelete.id);
+        if (!check) console.log("✅ DELETE Worked! Post is gone.");
+    }
+
+    // --- 7. TEST ADVANCED FILTERS ---
+    console.log("\n7. Testing Advanced Operators...");
+    try {
+        // FIX: isAdmin -> isadmin
+        await User.create({ name: "Junior Dev", email: "junior@funaab.edu.ng", isadmin: false });
+    } catch(e) {} 
+
+    const allUsers = await User.find({ id: { gt: 0 } } as any);
+    console.log(`   > Found ${allUsers.length} users with ID > 0`);
+
+    // --- 8. TEST ONE-TO-MANY (User -> Posts) ---
+    console.log("\n8. Testing One-to-Many (Hydration)...");
+    
+    // Create extra post
+    try {
+        await Post.create({ 
+            title: "Another Post", 
+            content: "Stacking them up", 
+            authorid: tunde.id // FIX: authorId -> authorid
+        });
+    } catch(e) {}
+
+    const userWithPosts: any = await User.get(tunde.id, { with: "posts" });
+    
+    if (userWithPosts && Array.isArray(userWithPosts.posts) && userWithPosts.posts.length > 0) {
+        console.log(`✅ Success! Tunde has ${userWithPosts.posts.length} posts.`);
+        console.log("   Preview:", JSON.stringify(userWithPosts.posts[0].title));
     } else {
-        console.log("⚠️ No posts found for Tunde.");
+        console.log("❌ Failed to fetch posts.");
     }
 
   } catch (e) {
