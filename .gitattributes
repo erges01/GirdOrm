@@ -1,0 +1,7 @@
+# Default behavior
+* text=auto
+
+# Force these specific files to ALWAYS use LF (Linux style)
+# This prevents the CLI from breaking on Windows machines
+bin/gird.js text eol=lf
+bin/*.js text eol=lf
