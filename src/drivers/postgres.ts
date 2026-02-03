@@ -8,14 +8,21 @@ export class PostgresAdapter implements DBAdapter {
   constructor(connectionString: string) {
     this.pool = new Pool({
       connectionString,
-      ssl: { rejectUnauthorized: false }, // Required for Neon/Production
+      // Fix: Only use SSL in production (Neon/AWS), otherwise localhost crashes
+      ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
     });
   }
 
   // Used by Model to run standard queries
   async query<T>(sql: string, params: any[] = []): Promise<T[]> {
     const res = await this.pool.query(sql, params);
-    return res.rows; // We return rows directly so Model matches T[]
+    return res.rows; 
+  }
+
+  // ✅ Added queryRaw (Required by Migrator)
+  async queryRaw(sql: string, params: any[] = []): Promise<any[]> {
+    const res = await this.pool.query(sql, params);
+    return res.rows;
   }
 
   // Used by reset.ts to kill the connection
@@ -29,7 +36,7 @@ export class PostgresAdapter implements DBAdapter {
   }
 
   getPlaceholder(index: number): string {
-    return `$${index + 1}`;
+    return `$${index + 1}`; // Converts 0-index to Postgres $1, $2...
   }
 }
 
@@ -38,6 +45,12 @@ export class TransactionAdapter implements DBAdapter {
   constructor(private client: PoolClient) {}
 
   async query<T>(sql: string, params: any[] = []): Promise<T[]> {
+    const res = await this.client.query(sql, params);
+    return res.rows;
+  }
+
+  // ✅ Added queryRaw (Required by Interface)
+  async queryRaw(sql: string, params: any[] = []): Promise<any[]> {
     const res = await this.client.query(sql, params);
     return res.rows;
   }

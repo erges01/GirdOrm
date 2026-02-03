@@ -1,16 +1,13 @@
 // src/index.ts
 
-// 1. Core Tools
+// 1. Core Tools (The Table Builder)
 export * from "./core/table";
-export * from "./core/config";
-export * from "./core/model";
 
-// 2. Database Engine
+// 2. Database Engine ( The Main Class)
 export * from "./db";
 
-// 3. Drivers
+// 3. Drivers (Postgres)
 export * from "./drivers/postgres";
 
-// 4. Types
-// 👇 FIX: Export 'DBAdapter', not 'Adapter'
-export type { DBAdapter } from "./core/adapter";
+// 4. Types & Interfaces (Adapters, QueryResult)
+export * from "./core/adapter";

@@ -1,27 +1,31 @@
 {
-  "name": "gird-orm",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "src/index.ts",
+  "name": "girdorm",
+  "version": "1.0.12",
+  "description": "A lightweight, type-safe ORM for Postgres",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
-    "gird": "./bin/wrapper.js"
+    "gird": "bin/gird.js"
   },
+  "files": [
+    "dist",
+    "bin"
+  ],
   "scripts": {
-    "test": "tsx src/playground.ts",
-    "migrate": "tsx bin/gird.ts migrate",
-    "init": "tsx bin/gird.ts init"
+    "build": "tsc",
+    "test": "tsx src/playground.ts"
   },
   "dependencies": {
-    "@types/pg": "^8.16.0",
-    "chalk": "^5.6.2",
+    "chalk": "^4.1.2",
     "commander": "^11.0.0",
-    "dotenv": "^17.2.3",
-    "figlet": "^1.10.0",
-    "pg": "^8.18.0"
+    "dotenv": "^16.0.0",
+    "figlet": "^1.6.0",
+    "pg": "^8.11.0"
   },
   "devDependencies": {
-    "@types/figlet": "^1.7.0",
+    "@types/figlet": "^1.5.0",
     "@types/node": "^20.0.0",
+    "@types/pg": "^8.10.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   }

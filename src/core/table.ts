@@ -1,3 +1,5 @@
+// girdORM/src/core/table.ts
+
 export type ColumnType = "INTEGER" | "TEXT" | "BOOLEAN";
 
 // <T> is a "Phantom Type". It tells TypeScript what kind of data this column holds.
@@ -49,6 +51,7 @@ export class Table<Schema = any> {
       let def = `"${name}"`; // Quote column names for safety
       
       // --- POSTGRES FIX ---
+      // If it's an Integer PK, use SERIAL for auto-increment
       if (col.isPrimaryKey && col.type === "INTEGER") {
         def += " SERIAL PRIMARY KEY";
       } else {
