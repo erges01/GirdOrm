@@ -1,132 +1,59 @@
-import fs from "fs";
-import path from "path";
-import { GirdDB } from "../db"; 
-import { Table } from "./table";
-import { pathToFileURL } from "url"; // Required for Windows import paths
+import { GirdDB } from "../db";
+import "reflect-metadata";
 
 export class Migrator {
   private db: GirdDB;
-  private schemaDir: string;
 
-  constructor(db: GirdDB, schemaDir: string) {
+  // We only need the DB instance now
+  constructor(db: GirdDB) {
     this.db = db;
-    this.schemaDir = schemaDir;
   }
 
   async sync() {
-    console.log("🔄 Syncing Database...");
+    console.log("   🔄 Syncing Database...");
     
-    // 1. Get absolute path to schema folder (Fixes Windows/Path issues)
-    const absoluteSchemaPath = path.resolve(process.cwd(), this.schemaDir);
+    // 👇 CRITICAL FIX: Use the models stored in GirdDB memory
+    // This works perfectly with tsx because the classes are already loaded.
+    const models = this.db.models;
 
-    if (!fs.existsSync(absoluteSchemaPath)) {
-      throw new Error(`Schema folder not found at: ${absoluteSchemaPath}`);
+    if (!models || models.length === 0) {
+        console.log("   ⚠️ No models registered. Did you call db.register([Model])?");
+        return;
     }
 
-    // 2. Load ALL tables into memory first
-    const tables: Table[] = [];
-    const files = fs.readdirSync(absoluteSchemaPath).filter((f) => f.endsWith(".ts") || f.endsWith(".js"));
-    
-    for (const file of files) {
-      const filePath = path.join(absoluteSchemaPath, file);
-      // FIX: Use pathToFileURL for Windows compatibility
-      const fileUrl = pathToFileURL(filePath).href;
+    for (const model of models) {
+      // 1. Get Table Name
+      const tableName = (model as any).tableName;
+      if (!tableName) continue;
+
+      // 2. Get Columns from Metadata (The @Column decorators)
+      const columns = Reflect.getMetadata("gird:columns", model) || [];
       
-      const module = await import(fileUrl);
-      
-      // ✅ FIX: "Duck Typing" Check
-      // Instead of 'instanceof Table', we check if it LOOKS like a table.
-      // This fixes the bug where npm link/install causes two different Table classes.
-      const tableDef = Object.values(module).find((exp: any) => exp && exp.tableName && exp.columns) as Table;
-      
-      if (tableDef) {
-          tables.push(tableDef);
+      if (columns.length === 0) {
+        console.log(`   ⚠️ Skipping ${tableName}: No columns defined.`);
+        continue;
+      }
+
+      // 3. Build the SQL
+      const colDefs = columns.map((col: any) => {
+        let def = `"${col.name}" ${col.options.type}`;
+        if (col.options.primary) def += " PRIMARY KEY";
+        if (col.options.generated) def += " GENERATED ALWAYS AS IDENTITY";
+        if (!col.options.nullable && !col.options.generated) def += " NOT NULL";
+        return def;
+      });
+
+      const createSql = `CREATE TABLE IF NOT EXISTS "${tableName}" (${colDefs.join(", ")});`;
+
+      // 4. Run the Query
+      try {
+        await this.db.adapter.query(createSql);
+        console.log(`   ✅ Synced: ${tableName}`);
+      } catch (err: any) {
+        console.error(`   ❌ Failed to sync ${tableName}:`, err.message);
       }
     }
-
-    // 3. The Retry Loop (Topological Sort Strategy)
-    let pending = [...tables];
-    let attempts = 0;
-    const maxAttempts = pending.length * 2; 
-
-    while (pending.length > 0) {
-        attempts++;
-        const nextPending: Table[] = [];
-        let progressMade = false;
-
-        console.log(`\n--- Migration Pass ${attempts} ---`);
-
-        for (const table of pending) {
-            try {
-                await this.syncTable(table);
-                progressMade = true; 
-            } catch (e: any) {
-                // Check for "relation does not exist" error (Code 42P01)
-                if (e.code === '42P01' || e.message.includes("does not exist")) {
-                    console.log(`   ⏳ Postponing ${table.tableName} (waiting for dependencies...)`);
-                    nextPending.push(table);
-                } else {
-                    throw e;
-                }
-            }
-        }
-
-        if (!progressMade && nextPending.length > 0) {
-            console.error("❌ DEADLOCK DETECTED: These tables depend on each other or are missing a reference:");
-            nextPending.forEach(t => console.error(`   - ${t.tableName}`));
-            throw new Error("Migration stuck.");
-        }
-
-        if (attempts > maxAttempts) {
-            throw new Error("Migration timed out.");
-        }
-
-        pending = nextPending;
-    }
-
-    console.log("\n✅ Database Sync Complete.");
-  }
-
-  private async syncTable(table: Table) {
-    // 1. Check if table exists
-    const checkSql = `
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_name = '${table.tableName}' 
-      AND table_schema = 'public';
-    `;
     
-    const existingTables = await this.db.queryRaw(checkSql);
-
-    if (existingTables.length === 0) {
-      console.log(`   ✨ Creating table: ${table.tableName}`);
-      await this.db.execute(table.toSQL());
-    } else {
-      console.log(`   ✅ Exists: ${table.tableName}`);
-      
-      // 2. Check for new columns
-      const colCheckSql = `
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = '${table.tableName}' 
-        AND table_schema = 'public';
-      `;
-      
-      const existingCols = await this.db.queryRaw(colCheckSql);
-      
-      // FIX: Lowercase everything for comparison
-      const existingColNames = existingCols.map((c: any) => c.column_name.toLowerCase());
-
-      for (const [colName, colDef] of Object.entries(table.columns)) {
-        // Compare schema column (lowercased) with DB columns
-        if (!existingColNames.includes(colName.toLowerCase())) {
-          console.log(`      ➕ Adding column: ${colName}`);
-          
-          // Use quotes around column name to preserve casing if needed
-          const sql = `ALTER TABLE "${table.tableName}" ADD COLUMN "${colName}" ${colDef.type}`;
-          await this.db.execute(sql);
-        }
-      }
-    }
+    console.log("✅ Database Sync Complete.");
   }
 }

@@ -1,45 +1,53 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.QueryBuilder = void 0;
+require("reflect-metadata"); // 👈 CRITICAL: Needed to read relations
 class QueryBuilder {
-    constructor(table, adapter) {
+    // CHANGED: We now accept the Model Class (e.g., User)
+    constructor(model, adapter) {
         this._columns = [];
         this._conditions = [];
         this._params = [];
         this._joins = [];
-        this._groupBy = []; // <-- NEW: Needed for JSON_AGG
+        this._groupBy = [];
         this._operation = "SELECT";
         this._data = {};
-        this._table = table;
+        this._model = model;
+        this._tableName = model.tableName; // e.g. "users"
         this._adapter = adapter;
+        // Default to selecting all from the main table to avoid ambiguous ID errors
+        this._columns = [`"${this._tableName}".*`];
     }
     select(...columns) {
         this._operation = "SELECT";
         if (columns.length > 0 && columns[0] !== "*") {
             this._columns = columns;
         }
-        else {
-            this._columns = [`"${this._table.tableName}".*`];
-        }
         return this;
     }
-    // --- THE MISSING METHOD: Handles Relations ---
+    // --- THE NEW LOGIC: Reads Metadata ---
     with(relationName) {
-        const rel = this._table.relations[relationName];
+        // 1. Get relations from the Decorators
+        const relations = Reflect.getMetadata("gird:relations", this._model) || [];
+        // 2. Find the one the user asked for (e.g. "posts")
+        const rel = relations.find((r) => r.key === relationName);
         if (!rel)
-            throw new Error(`Relation ${relationName} not found on ${this._table.tableName}`);
+            throw new Error(`Relation '${relationName}' not found on ${this._tableName}`);
+        // 3. Get the Related Table Name (Run the function: () => Post)
+        const RelatedModel = rel.model();
+        const relatedTable = RelatedModel.tableName;
         if (rel.type === "belongsTo") {
-            // Standard Left Join (Post -> User)
-            this._joins.push(`LEFT JOIN "${rel.table}" ON "${this._table.tableName}"."${rel.localKey}" = "${rel.table}"."${rel.foreignKey}"`);
-            // Select the related data as a JSON object
-            this._columns.push(`to_json("${rel.table}".*) as "${relationName}"`);
+            // Post belongsTo User (via authorid)
+            // JOIN "users" ON "posts"."authorid" = "users"."id"
+            this._joins.push(`LEFT JOIN "${relatedTable}" ON "${this._tableName}"."${rel.foreignKey}" = "${relatedTable}"."id"`);
+            this._columns.push(`to_json("${relatedTable}".*) as "${relationName}"`);
         }
         else if (rel.type === "hasMany") {
-            // Advanced JSON_AGG (User -> Posts)
-            this._joins.push(`LEFT JOIN "${rel.table}" ON "${this._table.tableName}"."${rel.localKey}" = "${rel.table}"."${rel.foreignKey}"`);
-            this._columns.push(`COALESCE(json_agg("${rel.table}".*) FILTER (WHERE "${rel.table}".id IS NOT NULL), '[]') as "${relationName}"`);
-            // We MUST group by the main table's ID when aggregating
-            this._groupBy.push(`"${this._table.tableName}".id`);
+            // User hasMany Posts (via authorid in Post table)
+            // JOIN "posts" ON "users"."id" = "posts"."authorid"
+            this._joins.push(`LEFT JOIN "${relatedTable}" ON "${this._tableName}"."id" = "${relatedTable}"."${rel.foreignKey}"`);
+            this._columns.push(`COALESCE(json_agg("${relatedTable}".*) FILTER (WHERE "${relatedTable}".id IS NOT NULL), '[]') as "${relationName}"`);
+            this._groupBy.push(`"${this._tableName}".id`);
         }
         return this;
     }
@@ -47,23 +55,23 @@ class QueryBuilder {
     where(conditions) {
         Object.entries(conditions).forEach(([key, value]) => {
             // Use quotes for safety: "table"."column"
-            const colName = key.includes(".") ? key : `"${this._table.tableName}"."${key}"`;
+            const colName = key.includes(".") ? key : `"${this._tableName}"."${key}"`;
             // 1. Handle Operators: { age: { gt: 18 } }
             if (typeof value === "object" && value !== null && !Array.isArray(value)) {
                 const ops = value;
                 Object.entries(ops).forEach(([op, val]) => {
-                    // We use a placeholder (??) to be replaced later by $1/$2
                     this._params.push(val);
+                    const placeholder = "??";
                     if (op === "gt")
-                        this._conditions.push(`${colName} > ??`);
+                        this._conditions.push(`${colName} > ${placeholder}`);
                     else if (op === "lt")
-                        this._conditions.push(`${colName} < ??`);
+                        this._conditions.push(`${colName} < ${placeholder}`);
                     else if (op === "gte")
-                        this._conditions.push(`${colName} >= ??`);
+                        this._conditions.push(`${colName} >= ${placeholder}`);
                     else if (op === "lte")
-                        this._conditions.push(`${colName} <= ??`);
+                        this._conditions.push(`${colName} <= ${placeholder}`);
                     else if (op === "contains")
-                        this._conditions.push(`${colName} LIKE ??`);
+                        this._conditions.push(`${colName} LIKE ${placeholder}`);
                 });
             }
             // 2. Handle Simple Equality: { name: "Tunde" }
@@ -103,7 +111,7 @@ class QueryBuilder {
             const placeholders = keys.map(() => nextParam()).join(", ");
             const columns = keys.map(k => `"${k}"`).join(", ");
             return {
-                sql: `INSERT INTO "${this._table.tableName}" (${columns}) VALUES (${placeholders}) RETURNING *;`,
+                sql: `INSERT INTO "${this._tableName}" (${columns}) VALUES (${placeholders}) RETURNING *;`,
                 params: values,
             };
         }
@@ -112,7 +120,7 @@ class QueryBuilder {
             const keys = Object.keys(this._data);
             const values = Object.values(this._data);
             const setClause = keys.map((k) => `"${k}" = ${nextParam()}`).join(", ");
-            let sql = `UPDATE "${this._table.tableName}" SET ${setClause}`;
+            let sql = `UPDATE "${this._tableName}" SET ${setClause}`;
             if (this._conditions.length > 0) {
                 const whereClause = this._conditions.map(c => c.replace("??", nextParam())).join(" AND ");
                 sql += ` WHERE ${whereClause}`;
@@ -121,7 +129,7 @@ class QueryBuilder {
         }
         // 3. DELETE Logic
         if (this._operation === "DELETE") {
-            let sql = `DELETE FROM "${this._table.tableName}"`;
+            let sql = `DELETE FROM "${this._tableName}"`;
             if (this._conditions.length > 0) {
                 const whereClause = this._conditions.map(c => c.replace("??", nextParam())).join(" AND ");
                 sql += ` WHERE ${whereClause}`;
@@ -130,7 +138,7 @@ class QueryBuilder {
         }
         // 4. SELECT Logic
         const selection = this._columns.join(", ");
-        let sql = `SELECT ${selection} FROM "${this._table.tableName}"`;
+        let sql = `SELECT ${selection} FROM "${this._tableName}"`;
         if (this._joins.length > 0)
             sql += ` ${this._joins.join(" ")}`;
         if (this._conditions.length > 0) {

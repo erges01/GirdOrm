@@ -1,29 +1,38 @@
 import { DBAdapter } from "./core/adapter";
-import { Table, Infer } from "./core/table";
 import { Model } from "./core/model";
 import { Migrator } from "./core/migrate";
 import { PostgresAdapter, TransactionAdapter } from "./drivers/postgres";
 
 export class GirdDB {
-  // 👇 FIX: Changed from 'private' to 'public readonly'
-  // This allows outside code to use db.adapter!
   public readonly adapter: DBAdapter;
+  // 👇 NEW: We store the models here so Migrator can find them
+  public models: (typeof Model)[] = [];
 
   constructor(adapter: DBAdapter) {
     this.adapter = adapter;
   }
 
-  // 1. Init: Run Migrations automatically if using Postgres
+  // 1. Init: Run Migrations using the REGISTERED models (not file scanning)
   async init() {
     if (this.adapter instanceof PostgresAdapter) {
-      const migrator = new Migrator(this, "./src/schema");
+      // 👇 CHANGED: Pass 'this' instead of a file path
+      const migrator = new Migrator(this);
       await migrator.sync();
     }
   }
 
-  // 2. Define a Model
-  table<T extends Table>(schema: T) {
-    return new Model<Infer<T>>(this.adapter, schema);
+  // 2. Register Models
+  register(models: (typeof Model)[]) {
+    // 👇 NEW: Save them to memory
+    this.models = models;
+
+    for (const model of models) {
+      model.adapter = this.adapter;
+      
+      if (!model.tableName) {
+        model.tableName = model.name;
+      }
+    }
   }
 
   // Helper A: Run command (Insert/Create)
@@ -38,7 +47,9 @@ export class GirdDB {
 
   // 3. Close Connection
   async close() {
-    await this.adapter.close();
+    if (this.adapter.close) {
+      await this.adapter.close();
+    }
   }
 
   // --- 4. Transaction Support ---
@@ -52,8 +63,6 @@ export class GirdDB {
 
     try {
       await client.query("BEGIN");
-
-      // Create a 'Clone' of GirdDB using the locked client
       const txAdapter = new TransactionAdapter(client);
       const txDB = new GirdDB(txAdapter);
 

@@ -1,10 +1,11 @@
 "use strict";
 // girdORM/src/core/table.ts
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Table = exports.bool = exports.text = exports.int = exports.Column = void 0;
+exports.Table = exports.bool = exports.text = exports.int = exports.DbColumn = void 0;
 exports.table = table;
 // <T> is a "Phantom Type". It tells TypeScript what kind of data this column holds.
-class Column {
+// RENAMED from 'Column' to 'DbColumn' to avoid conflict with the @Column decorator
+class DbColumn {
     constructor(type) {
         this.type = type;
         this.isPrimaryKey = false;
@@ -20,17 +21,18 @@ class Column {
         return this;
     }
 }
-exports.Column = Column;
-// Helpers now return Typed Columns
-const int = () => new Column("INTEGER");
+exports.DbColumn = DbColumn;
+// Helpers now return Typed DbColumns
+const int = () => new DbColumn("INTEGER");
 exports.int = int;
-const text = () => new Column("TEXT");
+const text = () => new DbColumn("TEXT");
 exports.text = text;
-const bool = () => new Column("BOOLEAN");
+const bool = () => new DbColumn("BOOLEAN");
 exports.bool = bool;
 class Table {
     // We added 'relations' as an optional third argument
-    constructor(tableName, columns, relations = {}) {
+    constructor(tableName, columns, // Updated type
+    relations = {}) {
         this.tableName = tableName;
         this.columns = columns;
         this.relations = relations;

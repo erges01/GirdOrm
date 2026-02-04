@@ -1,7 +1,8 @@
-import { Table } from "./table";
 import { DBAdapter } from "./adapter";
+import "reflect-metadata";
 export declare class QueryBuilder {
-    private _table;
+    private _model;
+    private _tableName;
     private _columns;
     private _conditions;
     private _params;
@@ -10,7 +11,7 @@ export declare class QueryBuilder {
     private _adapter?;
     private _operation;
     private _data;
-    constructor(table: Table, adapter?: DBAdapter);
+    constructor(model: any, adapter?: DBAdapter);
     select(...columns: string[]): this;
     with(relationName: string): this;
     where(conditions: Record<string, any>): this;

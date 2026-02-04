@@ -1,14 +1,19 @@
 {
   "compilerOptions": {
-    "target": "ES2020",         // Good balance of features vs compatibility
-    "module": "CommonJS",       // Required for standard Node.js execution
-    "moduleResolution": "node", // Uses standard Node module lookup
-    "outDir": "./dist",         // Where the built files go
-    "rootDir": "./src",         // Keeps the folder structure clean
-    "declaration": true,        // IMPORTANT: Generates .d.ts files so users get IntelliSense
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": true,
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+
+    // 👇 ADD THESE TO FIX THE ERRORS
+    "experimentalDecorators": true,  // Enables @Column support
+    "emitDecoratorMetadata": true,   // Allows reading types (String, Number) automatically
+    "strictPropertyInitialization": false // Stops "Property 'id' has no initializer" errors
   },
   "include": ["src/**/*"]
 }

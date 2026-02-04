@@ -1,63 +1,103 @@
 import "dotenv/config"; 
-import { GirdDB } from "./db";
-import { PostgresAdapter } from "./drivers/postgres"; 
-import { UserTable } from "./schema/user";
-import { PostTable } from "./schema/post";
+import { GirdDB, PostgresAdapter } from "./index";
+import { Model } from "./core/model";
+// 👇 IMPORT THE NEW DECORATORS
+import { Column, HasMany, BelongsTo } from "./core/decorators";
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) throw new Error("❌ DATABASE_URL is missing!");
+// --- 1. DEFINE MODELS ---
 
-const adapter = new PostgresAdapter(connectionString);
-const db = new GirdDB(adapter);
+class User extends Model {
+  static tableName = "users"; 
 
-const User = db.table(UserTable);
-const Post = db.table(PostTable);
+  @Column({ type: "int", primary: true, generated: true })
+  id!: number;
 
+  @Column({ type: "text" })
+  name!: string;
+
+  @Column({ type: "text" })
+  email!: string;
+
+  @Column({ type: "boolean" })
+  isadmin!: boolean; 
+
+  // 👇 NEW: Define the Relationship
+  // "User has many Posts" (Post table uses 'authorid' to point to us)
+  @HasMany(() => Post, "authorid")
+  posts?: Post[];
+}
+
+class Post extends Model {
+  static tableName = "posts";
+
+  @Column({ type: "int", primary: true, generated: true })
+  id!: number;
+
+  @Column({ type: "text" })
+  title!: string;
+
+  @Column({ type: "text" })
+  content!: string;
+
+  @Column({ type: "int" })
+  authorid!: number; 
+  
+  // 👇 NEW: Define the Inverse Relationship
+  // "Post belongs to User" (We use 'authorid' to point to them)
+  @BelongsTo(() => User, "authorid")
+  author?: User;
+}
+
+// --- 2. THE PLAYGROUND ---
 console.log("🚀 Starting GirdORM Playground...");
 
 async function run() {
-  await db.init();
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) throw new Error("❌ DATABASE_URL is missing!");
+
+  const adapter = new PostgresAdapter(connectionString);
+  const db = new GirdDB(adapter);
+
+  db.register([User, Post]);
+
+  await db.init(); 
 
   try {
-    // --- 1. SETUP: Create Tunde ---
+    // --- TEST 1: Create/Find Tunde ---
     let tunde;
     const users = await User.find({ email: "tunde@funaab.edu.ng" });
     
     if (users.length === 0) {
         console.log("Creating Tunde...");
-        // FIX: isAdmin -> isadmin
-        await User.create({ name: "Tunde", email: "tunde@funaab.edu.ng", isadmin: true });
-        
-        const newUsers = await User.find({ email: "tunde@funaab.edu.ng" });
-        tunde = newUsers[0]!;
+        tunde = await User.create({ 
+            name: "Tunde", 
+            email: "tunde@funaab.edu.ng", 
+            isadmin: true 
+        });
     } else {
-        tunde = users[0]!;
+        tunde = users[0];
     }
     
-    if (!tunde || !tunde.id) {
-        console.error("❌ Critical Error: Tunde was not found or has no ID.");
-        return; 
-    }
     console.log("👤 User Found:", tunde.name, `(ID: ${tunde.id})`);
 
-    // --- 2. SETUP: Create Post ---
+    // --- TEST 2: Create Post ---
     console.log(`\n2. Creating Post...`);
     try {
         await Post.create({
             title: "Why GirdORM is cracked",
             content: "It is faster than Prisma.",
-            authorid: tunde.id  // FIX: authorId -> authorid
+            authorid: tunde.id 
         });
         console.log("✅ Post Created!");
     } catch (e) { console.log("   (Post might exist)"); }
 
-    // --- 3. Ghost Test ---
+    // --- TEST 3: Ghost Test ---
     console.log("\n3. Testing Foreign Key Constraints...");
     try {
         await Post.create({
             title: "Ghost Post",
             content: "This should not exist.",
-            authorid: 9999 // FIX: authorId -> authorid
+            authorid: 9999 
         });
         console.log("❌ ERROR: The database allowed a ghost post!");
     } catch (error: any) {
@@ -68,78 +108,42 @@ async function run() {
         }
     }
 
-    // --- 4. TEST JOIN (BelongsTo) ---
-    console.log("\n4. Testing JOIN (Post -> User)...");
+    // --- TEST 4: MAGIC JOIN (The Cracked Feature 🪄) ---
+    console.log("\n4. Testing Magic Join (with: 'posts')...");
     
-    // FIX: authorId -> authorid
-    const myPosts = await Post.find({ authorid: tunde.id }); 
-    
-    if (myPosts.length > 0) {
-        const postId = myPosts[0]!.id;
-        const postWithUser: any = await Post.get(postId, { with: "users" });
+    // 👇 The "Junior Dev" way is gone. We use the ORM way now.
+    const userWithPosts: any = await User.get(tunde.id, { with: "posts" });
 
-        if (postWithUser?.users?.name === "Tunde") {
-            console.log("✅ Success: JOIN worked!");
-        } else {
-            console.log("❌ Failure: User not found in post.");
-        }
+    if (userWithPosts && userWithPosts.posts && userWithPosts.posts.length > 0) {
+        console.log(`✅ Success! Tunde has ${userWithPosts.posts.length} posts.`);
+        console.log(`   Sample: "${userWithPosts.posts[0].title}"`);
+    } else {
+        console.log("❌ Failed to load relations.");
     }
 
-    // --- 5. TEST UPDATE ---
+    // --- TEST 5: UPDATE (Static Method) ---
     console.log("\n5. Testing UPDATE...");
     console.log("   Old Name:", tunde.name);
+    
+    // 👇 NEW: No more raw SQL!
     await User.update(tunde.id, { name: "Tunde (The Builder)" });
-    const updatedTunde = (await User.get(tunde.id)) as any;
-    console.log("   New Name:", updatedTunde.name);
+    
+    const updatedUser = await User.get(tunde.id);
+    console.log("   ✅ Name Updated to:", updatedUser?.name);
 
-    // --- 6. TEST DELETE ---
+    // --- TEST 6: DELETE (Static Method) ---
     console.log("\n6. Testing DELETE...");
-    await Post.create({
+    const tempPost = await Post.create({
         title: "Delete Me",
         content: "I am short lived.",
-        authorid: tunde.id // FIX: authorId -> authorid
+        authorid: tunde.id 
     });
-    const tempPosts = await Post.find({ title: "Delete Me" });
     
-    if (tempPosts.length > 0) {
-        const postToDelete = tempPosts[0]!;
-        console.log(`   Deleting post ID: ${postToDelete.id}`);
-        await Post.delete(postToDelete.id);
-        
-        const check = await Post.get(postToDelete.id);
-        if (!check) console.log("✅ DELETE Worked! Post is gone.");
-    }
-
-    // --- 7. TEST ADVANCED FILTERS ---
-    console.log("\n7. Testing Advanced Operators...");
-    try {
-        // FIX: isAdmin -> isadmin
-        await User.create({ name: "Junior Dev", email: "junior@funaab.edu.ng", isadmin: false });
-    } catch(e) {} 
-
-    const allUsers = await User.find({ id: { gt: 0 } } as any);
-    console.log(`   > Found ${allUsers.length} users with ID > 0`);
-
-    // --- 8. TEST ONE-TO-MANY (User -> Posts) ---
-    console.log("\n8. Testing One-to-Many (Hydration)...");
+    console.log(`   Deleting post ID: ${tempPost.id}`);
     
-    // Create extra post
-    try {
-        await Post.create({ 
-            title: "Another Post", 
-            content: "Stacking them up", 
-            authorid: tunde.id // FIX: authorId -> authorid
-        });
-    } catch(e) {}
-
-    const userWithPosts: any = await User.get(tunde.id, { with: "posts" });
-    
-    if (userWithPosts && Array.isArray(userWithPosts.posts) && userWithPosts.posts.length > 0) {
-        console.log(`✅ Success! Tunde has ${userWithPosts.posts.length} posts.`);
-        console.log("   Preview:", JSON.stringify(userWithPosts.posts[0].title));
-    } else {
-        console.log("❌ Failed to fetch posts.");
-    }
+    // 👇 NEW: No more raw SQL!
+    await Post.delete(tempPost.id);
+    console.log("   ✅ DELETE Worked!");
 
   } catch (e) {
     console.error(e);

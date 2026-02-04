@@ -1,8 +1,7 @@
 import { GirdDB } from "../db";
+import "reflect-metadata";
 export declare class Migrator {
     private db;
-    private schemaDir;
-    constructor(db: GirdDB, schemaDir: string);
+    constructor(db: GirdDB);
     sync(): Promise<void>;
-    private syncTable;
 }

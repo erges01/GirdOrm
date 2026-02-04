@@ -1,13 +1,20 @@
-// src/index.ts
+import "reflect-metadata"; // <--- 1. CRITICAL: Needed for decorators to work
 
-// 1. Core Tools (The Table Builder)
+// 2. The Decorators (Must come first to override any other 'Column')
+// Ensure you created src/core/decorators.ts as discussed!
+export * from "./core/decorators"; 
+
+// 3. The Model Class (Fixes "no exported member Model")
+export * from "./core/model";
+
+// 4. Core Tools 
 export * from "./core/table";
 
-// 2. Database Engine ( The Main Class)
+// 5. Database Engine
 export * from "./db";
 
-// 3. Drivers (Postgres)
+// 6. Drivers
 export * from "./drivers/postgres";
 
-// 4. Types & Interfaces (Adapters, QueryResult)
+// 7. Types
 export * from "./core/adapter";

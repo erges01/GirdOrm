@@ -1,59 +1,112 @@
 "use strict";
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 require("dotenv/config");
-const db_1 = require("./db");
-const postgres_1 = require("./drivers/postgres");
-const user_1 = require("./schema/user");
-const post_1 = require("./schema/post");
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString)
-    throw new Error("❌ DATABASE_URL is missing!");
-const adapter = new postgres_1.PostgresAdapter(connectionString);
-const db = new db_1.GirdDB(adapter);
-const User = db.table(user_1.UserTable);
-const Post = db.table(post_1.PostTable);
+const index_1 = require("./index");
+const model_1 = require("./core/model");
+// 👇 IMPORT THE NEW DECORATORS
+const decorators_1 = require("./core/decorators");
+// --- 1. DEFINE MODELS ---
+class User extends model_1.Model {
+}
+User.tableName = "users";
+__decorate([
+    (0, decorators_1.Column)({ type: "int", primary: true, generated: true }),
+    __metadata("design:type", Number)
+], User.prototype, "id", void 0);
+__decorate([
+    (0, decorators_1.Column)({ type: "text" }),
+    __metadata("design:type", String)
+], User.prototype, "name", void 0);
+__decorate([
+    (0, decorators_1.Column)({ type: "text" }),
+    __metadata("design:type", String)
+], User.prototype, "email", void 0);
+__decorate([
+    (0, decorators_1.Column)({ type: "boolean" }),
+    __metadata("design:type", Boolean)
+], User.prototype, "isadmin", void 0);
+__decorate([
+    (0, decorators_1.HasMany)(() => Post, "authorid"),
+    __metadata("design:type", Array)
+], User.prototype, "posts", void 0);
+class Post extends model_1.Model {
+}
+Post.tableName = "posts";
+__decorate([
+    (0, decorators_1.Column)({ type: "int", primary: true, generated: true }),
+    __metadata("design:type", Number)
+], Post.prototype, "id", void 0);
+__decorate([
+    (0, decorators_1.Column)({ type: "text" }),
+    __metadata("design:type", String)
+], Post.prototype, "title", void 0);
+__decorate([
+    (0, decorators_1.Column)({ type: "text" }),
+    __metadata("design:type", String)
+], Post.prototype, "content", void 0);
+__decorate([
+    (0, decorators_1.Column)({ type: "int" }),
+    __metadata("design:type", Number)
+], Post.prototype, "authorid", void 0);
+__decorate([
+    (0, decorators_1.BelongsTo)(() => User, "authorid"),
+    __metadata("design:type", User)
+], Post.prototype, "author", void 0);
+// --- 2. THE PLAYGROUND ---
 console.log("🚀 Starting GirdORM Playground...");
 async function run() {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString)
+        throw new Error("❌ DATABASE_URL is missing!");
+    const adapter = new index_1.PostgresAdapter(connectionString);
+    const db = new index_1.GirdDB(adapter);
+    db.register([User, Post]);
     await db.init();
     try {
-        // --- 1. SETUP: Create Tunde ---
+        // --- TEST 1: Create/Find Tunde ---
         let tunde;
         const users = await User.find({ email: "tunde@funaab.edu.ng" });
         if (users.length === 0) {
             console.log("Creating Tunde...");
-            // FIX: isAdmin -> isadmin
-            await User.create({ name: "Tunde", email: "tunde@funaab.edu.ng", isadmin: true });
-            const newUsers = await User.find({ email: "tunde@funaab.edu.ng" });
-            tunde = newUsers[0];
+            tunde = await User.create({
+                name: "Tunde",
+                email: "tunde@funaab.edu.ng",
+                isadmin: true
+            });
         }
         else {
             tunde = users[0];
         }
-        if (!tunde || !tunde.id) {
-            console.error("❌ Critical Error: Tunde was not found or has no ID.");
-            return;
-        }
         console.log("👤 User Found:", tunde.name, `(ID: ${tunde.id})`);
-        // --- 2. SETUP: Create Post ---
+        // --- TEST 2: Create Post ---
         console.log(`\n2. Creating Post...`);
         try {
             await Post.create({
                 title: "Why GirdORM is cracked",
                 content: "It is faster than Prisma.",
-                authorid: tunde.id // FIX: authorId -> authorid
+                authorid: tunde.id
             });
             console.log("✅ Post Created!");
         }
         catch (e) {
             console.log("   (Post might exist)");
         }
-        // --- 3. Ghost Test ---
+        // --- TEST 3: Ghost Test ---
         console.log("\n3. Testing Foreign Key Constraints...");
         try {
             await Post.create({
                 title: "Ghost Post",
                 content: "This should not exist.",
-                authorid: 9999 // FIX: authorId -> authorid
+                authorid: 9999
             });
             console.log("❌ ERROR: The database allowed a ghost post!");
         }
@@ -65,70 +118,35 @@ async function run() {
                 console.log("❌ Unexpected Error:", error.message);
             }
         }
-        // --- 4. TEST JOIN (BelongsTo) ---
-        console.log("\n4. Testing JOIN (Post -> User)...");
-        // FIX: authorId -> authorid
-        const myPosts = await Post.find({ authorid: tunde.id });
-        if (myPosts.length > 0) {
-            const postId = myPosts[0].id;
-            const postWithUser = await Post.get(postId, { with: "users" });
-            if (postWithUser?.users?.name === "Tunde") {
-                console.log("✅ Success: JOIN worked!");
-            }
-            else {
-                console.log("❌ Failure: User not found in post.");
-            }
-        }
-        // --- 5. TEST UPDATE ---
-        console.log("\n5. Testing UPDATE...");
-        console.log("   Old Name:", tunde.name);
-        await User.update(tunde.id, { name: "Tunde (The Builder)" });
-        const updatedTunde = (await User.get(tunde.id));
-        console.log("   New Name:", updatedTunde.name);
-        // --- 6. TEST DELETE ---
-        console.log("\n6. Testing DELETE...");
-        await Post.create({
-            title: "Delete Me",
-            content: "I am short lived.",
-            authorid: tunde.id // FIX: authorId -> authorid
-        });
-        const tempPosts = await Post.find({ title: "Delete Me" });
-        if (tempPosts.length > 0) {
-            const postToDelete = tempPosts[0];
-            console.log(`   Deleting post ID: ${postToDelete.id}`);
-            await Post.delete(postToDelete.id);
-            const check = await Post.get(postToDelete.id);
-            if (!check)
-                console.log("✅ DELETE Worked! Post is gone.");
-        }
-        // --- 7. TEST ADVANCED FILTERS ---
-        console.log("\n7. Testing Advanced Operators...");
-        try {
-            // FIX: isAdmin -> isadmin
-            await User.create({ name: "Junior Dev", email: "junior@funaab.edu.ng", isadmin: false });
-        }
-        catch (e) { }
-        const allUsers = await User.find({ id: { gt: 0 } });
-        console.log(`   > Found ${allUsers.length} users with ID > 0`);
-        // --- 8. TEST ONE-TO-MANY (User -> Posts) ---
-        console.log("\n8. Testing One-to-Many (Hydration)...");
-        // Create extra post
-        try {
-            await Post.create({
-                title: "Another Post",
-                content: "Stacking them up",
-                authorid: tunde.id // FIX: authorId -> authorid
-            });
-        }
-        catch (e) { }
+        // --- TEST 4: MAGIC JOIN (The Cracked Feature 🪄) ---
+        console.log("\n4. Testing Magic Join (with: 'posts')...");
+        // 👇 The "Junior Dev" way is gone. We use the ORM way now.
         const userWithPosts = await User.get(tunde.id, { with: "posts" });
-        if (userWithPosts && Array.isArray(userWithPosts.posts) && userWithPosts.posts.length > 0) {
+        if (userWithPosts && userWithPosts.posts && userWithPosts.posts.length > 0) {
             console.log(`✅ Success! Tunde has ${userWithPosts.posts.length} posts.`);
-            console.log("   Preview:", JSON.stringify(userWithPosts.posts[0].title));
+            console.log(`   Sample: "${userWithPosts.posts[0].title}"`);
         }
         else {
-            console.log("❌ Failed to fetch posts.");
+            console.log("❌ Failed to load relations.");
         }
+        // --- TEST 5: UPDATE (Static Method) ---
+        console.log("\n5. Testing UPDATE...");
+        console.log("   Old Name:", tunde.name);
+        // 👇 NEW: No more raw SQL!
+        await User.update(tunde.id, { name: "Tunde (The Builder)" });
+        const updatedUser = await User.get(tunde.id);
+        console.log("   ✅ Name Updated to:", updatedUser?.name);
+        // --- TEST 6: DELETE (Static Method) ---
+        console.log("\n6. Testing DELETE...");
+        const tempPost = await Post.create({
+            title: "Delete Me",
+            content: "I am short lived.",
+            authorid: tunde.id
+        });
+        console.log(`   Deleting post ID: ${tempPost.id}`);
+        // 👇 NEW: No more raw SQL!
+        await Post.delete(tempPost.id);
+        console.log("   ✅ DELETE Worked!");
     }
     catch (e) {
         console.error(e);

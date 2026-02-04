@@ -1,5 +1,4 @@
 "use strict";
-// src/index.ts
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -15,11 +14,17 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// 1. Core Tools (The Table Builder)
+require("reflect-metadata"); // <--- 1. CRITICAL: Needed for decorators to work
+// 2. The Decorators (Must come first to override any other 'Column')
+// Ensure you created src/core/decorators.ts as discussed!
+__exportStar(require("./core/decorators"), exports);
+// 3. The Model Class (Fixes "no exported member Model")
+__exportStar(require("./core/model"), exports);
+// 4. Core Tools 
 __exportStar(require("./core/table"), exports);
-// 2. Database Engine ( The Main Class)
+// 5. Database Engine
 __exportStar(require("./db"), exports);
-// 3. Drivers (Postgres)
+// 6. Drivers
 __exportStar(require("./drivers/postgres"), exports);
-// 4. Types & Interfaces (Adapters, QueryResult)
+// 7. Types
 __exportStar(require("./core/adapter"), exports);

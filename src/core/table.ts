@@ -3,7 +3,8 @@
 export type ColumnType = "INTEGER" | "TEXT" | "BOOLEAN";
 
 // <T> is a "Phantom Type". It tells TypeScript what kind of data this column holds.
-export class Column<T> {
+// RENAMED from 'Column' to 'DbColumn' to avoid conflict with the @Column decorator
+export class DbColumn<T> {
   public isPrimaryKey = false;
   public foreignKey?: { table: string; column: string };
 
@@ -22,10 +23,10 @@ export class Column<T> {
   }
 }
 
-// Helpers now return Typed Columns
-export const int = () => new Column<number>("INTEGER");
-export const text = () => new Column<string>("TEXT");
-export const bool = () => new Column<boolean>("BOOLEAN");
+// Helpers now return Typed DbColumns
+export const int = () => new DbColumn<number>("INTEGER");
+export const text = () => new DbColumn<string>("TEXT");
+export const bool = () => new DbColumn<boolean>("BOOLEAN");
 
 // --- NEW: Relation Definitions ---
 export interface RelationDef {
@@ -39,7 +40,7 @@ export class Table<Schema = any> {
   // We added 'relations' as an optional third argument
   constructor(
     public tableName: string,
-    public columns: Record<string, Column<any>>,
+    public columns: Record<string, DbColumn<any>>, // Updated type
     public relations: Record<string, RelationDef> = {} 
   ) {}
 
@@ -79,10 +80,10 @@ export class Table<Schema = any> {
 export type Infer<T> = T extends Table<infer S> ? S : never;
 
 // 4. Updated 'table' function to capture types AND accept relations
-export function table<T extends Record<string, Column<any>>>(
+export function table<T extends Record<string, DbColumn<any>>>(
   name: string, 
   columns: T,
   relations: Record<string, RelationDef> = {}
-): Table<{ [K in keyof T]: T[K] extends Column<infer U> ? U : never }> {
+): Table<{ [K in keyof T]: T[K] extends DbColumn<infer U> ? U : never }> {
   return new Table(name, columns, relations);
 }

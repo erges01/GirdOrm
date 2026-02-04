@@ -1,133 +1,169 @@
-# ⚡ GirdORM
+# 🦒 GirdORM
 
-**The TypeScript ORM for SQLite.**
+> **The Code-First, Type-Safe ORM for Postgres.**
+> *Stop writing migrations. Start writing Classes.*
 
-GirdORM is a lightweight, type-safe Object-Relational Mapper (ORM) built from scratch. It was designed to rival tools like Prisma by offering **Zero-Config Migrations**, **Strict Type Inference**, and **Automatic Relationships** without the bloat.
+**GirdORM** is a modern Object-Relational Mapper built for developers who want speed without the bloat. It was designed to rival tools like TypeORM and Prisma by offering **Class-Based Models**, **Auto-Sync Migrations**, and **Zero-Config Setup**.
 
 ## 🚀 Why GirdORM?
 
-* **Zero-Config Migrations:** No `.sql` files. No manual migration history. Just run `migrate` and the database updates itself.
-* **Strict Type Safety:** If you define a column as `int()`, TypeScript *knows* it's a number. No `any` types allowed.
-* **Auto-Relations:** Fetch a Post and its Author in a single query using `{ with: "users" }`.
-* **SQLite Native:** Optimized for `better-sqlite3` for maximum speed.
-* **Sanitization:** Automatically handles SQLite quirks (like converting `true` -> `1`).
+* **⚡ Zero-Config Migrations:** No `.sql` files to manage. GirdORM inspects your classes and syncs the database automatically at startup.
+* **🏗️ Class-Based Schemas:** Define your database tables using standard TypeScript classes and decorators.
+* **🔗 Auto-Relations:** Use `@HasMany` and `@BelongsTo` to link tables instantly.
+* **🐘 Postgres Native:** Built specifically for the power and reliability of PostgreSQL.
+* **🛡️ Type-Safety:** Full TypeScript support for queries and returns.
 
 ---
 
 ## 📦 Installation
 
 ```bash
-npm install better-sqlite3 commander
-npm install -D typescript tsx @types/node @types/better-sqlite3
+npm install girdorm pg reflect-metadata dotenv
 
 ```
+
+*(Note: You also need `tsx` or `ts-node` to run your TypeScript files)*
+
+---
 
 ## 🛠 Quick Start
 
-### 1. Initialize
+### 1. Initialize Project
 
-Generate the configuration file.
-
-```bash
-npx tsx bin/gird.ts init
-
-```
-
-### 2. Define Your Schema
-
-Create your tables in `src/schema/`. GirdORM uses "Schema-as-Code".
-
-**`src/schema/user.ts`**
-
-```typescript
-import { table, int, text, bool } from "../core/table";
-
-export const UserTable = table("users", {
-  id: int().primaryKey(),
-  name: text(),
-  email: text(),
-  isAdmin: bool()
-});
-
-```
-
-**`src/schema/post.ts`**
-
-```typescript
-import { table, int, text } from "../core/table";
-
-export const PostTable = table("posts", {
-  id: int().primaryKey(),
-  title: text(),
-  content: text(),
-  // Automatically links to the 'users' table
-  authorId: int().references("users", "id") 
-});
-
-```
-
-### 3. The Magic Migration
-
-Sync your database. This command scans your folder, compares it to the SQLite file, and **auto-fixes** missing tables or columns.
+Run the magic command to set up your folder structure and configuration:
 
 ```bash
-npx tsx bin/gird.ts migrate
+npx gird init
+
+```
+
+*This creates `src/schema/`, `gird.json`, and generates a `.env` file.*
+
+### 2. Generate a Model
+
+Create a new database table definition in seconds:
+
+```bash
+npx gird make:model User
+
+```
+
+This automatically creates `src/schema/User.ts`:
+
+```typescript
+import { Model, Column } from 'girdorm';
+
+export class User extends Model {
+  // 1. Define Table Name
+  static tableName = "users";
+
+  // 2. Define Columns
+  @Column({ type: 'int', primary: true, generated: true })
+  id!: number;
+
+  @Column({ type: 'text' })
+  name!: string;
+
+  @Column({ type: 'text' })
+  email!: string;
+}
+
+```
+
+### 3. Run It
+
+Connect your models in your main entry file (e.g., `src/main.ts`):
+
+```typescript
+import "reflect-metadata"; // Required at top
+import "dotenv/config";
+import { GirdDB, PostgresAdapter } from "girdorm";
+import { User } from "./schema/User";
+
+async function main() {
+  // 1. Connect
+  const db = new GirdDB(new PostgresAdapter(process.env.DATABASE_URL));
+
+  // 2. Register Models (Crucial Step!)
+  db.register([ User ]);
+
+  // 3. Sync Database (Auto-creates tables)
+  await db.init(); 
+
+  // 4. Use It!
+  const user = await User.create({ 
+    name: "Adesope", 
+    email: "dev@gird.com" 
+  });
+  
+  console.log(`Created User: ${user.name} with ID: ${user.id}`);
+}
+
+main();
 
 ```
 
 ---
 
-## 💻 Usage
+## 💻 Usage & API
 
-GirdORM provides a fluent API that feels like magic.
+### Defining Relations
 
-### Basic CRUD
+GirdORM handles complex joins with simple decorators.
+
+**The User (Parent):**
 
 ```typescript
-import { GirdDB } from "./db";
-import { UserTable } from "./schema/user";
+import { HasMany } from 'girdorm';
+import { Post } from './Post';
 
-const db = new GirdDB({ dbPath: "gird.db" });
-const User = db.table(UserTable);
+export class User extends Model {
+  // ... columns ...
 
-// 1. Create (Type-Safe!)
-// TypeScript will error if you misspell 'email'
-User.create({
-  name: "Adesope",
-  email: "dev@funaab.edu.ng",
-  isAdmin: true
-});
-
-// 2. Read
-const user = User.get(1);
-console.log(user.name); // "Adesope"
+  @HasMany(() => Post, "authorid")
+  posts?: Post[];
+}
 
 ```
 
-### Relationships (The "Join" Magic)
-
-Fetch related data in one shot. No need for multiple queries.
+**The Post (Child):**
 
 ```typescript
-import { PostTable } from "./schema/post";
-const Post = db.table(PostTable);
+import { BelongsTo } from 'girdorm';
+import { User } from './User';
 
-// Fetch Post #1 AND the Author details automatically
-const post = Post.get(1, { with: "users" });
+export class Post extends Model {
+  @Column({ type: 'int' })
+  authorid!: number;
 
-console.log(post);
-/* Output:
-{
-  id: 1,
-  title: "Building GirdORM",
-  authorId: 1,
-  users: {
-    id: 1,
-    name: "Adesope",
-    email: "dev@funaab.edu.ng"
-  }
+  @BelongsTo(() => User, "authorid")
+  author?: User;
 }
-*/
+
+```
+
+### Querying with Relations (Magic Joins)
+
+Fetch a User and all their Posts in a single, efficient query.
+
+```typescript
+const user = await User.get(1, { with: "posts" });
+
+console.log(user.posts); 
+// Output: [{ id: 1, title: "GirdORM is Live", authorid: 1 }]
+
+```
+
+### Transactions
+
+Perform atomic operations safely.
+
+```typescript
+await db.transaction(async (tx) => {
+  await User.create({ name: "Alice" });
+  await User.create({ name: "Bob" });
+  // If anything fails here, BOTH creates are rolled back.
+});
 
 ```
 
@@ -135,29 +171,17 @@ console.log(post);
 
 ## 🧠 Under the Hood
 
-How does the **Type Inference** work?
+**How does the Magic work?**
 
-We use a TypeScript feature called `Infer<T>`. When you define a table using our helper functions (`int()`, `text()`), we attach a "Phantom Type" to the column.
+GirdORM uses TypeScript **Decorators** and `Reflect Metadata`.
 
-```typescript
-// Inside core/table.ts
-export type Infer<T> = T extends Table<infer S> ? S : never;
-
-```
-
-When you pass the schema to `db.table()`, we extract this inferred type and pass it to the `Model<T>` class. This is why VS Code can autocomplete your database columns!
-
----
-
-## 🛡 Safety Features
-
-1. **Foreign Key Enforcement:** If you try to create a Post for a user that doesn't exist, GirdORM throws a `SQLITE_CONSTRAINT_FOREIGNKEY` error.
-2. **Boolean Sanitizer:** SQLite doesn't support booleans. GirdORM automatically converts `true` to `1` on write, and manages it on read.
-3. **SQL Injection Protection:** All queries use parameterized statements (`?`) to prevent hacking.
+1. When you add `@Column()`, we store metadata about that property on the class prototype.
+2. When you call `db.register([User])`, we read that metadata.
+3. The **Migrator** compares your Class Metadata against the actual Postgres `information_schema`.
+4. If a table or column is missing, GirdORM generates the raw SQL (`CREATE TABLE...` or `ALTER TABLE...`) to fix it instantly.
 
 ---
 
 ## 👤 Author
 
-Built by **Adesope** 
-*Creating tools for cracked developers.*
+**Adesope** *Building tools for cracked developers.*
