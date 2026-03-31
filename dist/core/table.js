@@ -1,10 +1,38 @@
 "use strict";
 // girdORM/src/core/table.ts
+//
+// ⚠️  DEPRECATED
+// ─────────────────────────────────────────────────────────────────────────────
+// This file contains the original schema-definition API (Table, DbColumn,
+// int(), text(), bool(), table()). It has been superseded by the decorator-
+// based Model system which is the canonical way to define models in GirdORM.
+//
+// INSTEAD, use:
+//
+//   import { Model, Column, HasMany, BelongsTo } from "girdorm";
+//
+//   class User extends Model {
+//     static tableName = "users";
+//
+//     @Column({ type: "int", primary: true, generated: true })
+//     id!: number;
+//
+//     @Column({ type: "text" })
+//     name!: string;
+//   }
+//
+// This file is kept only for backwards-compatibility and will be removed in
+// a future major version. Do NOT use it in new code.
+// ─────────────────────────────────────────────────────────────────────────────
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Table = exports.bool = exports.text = exports.int = exports.DbColumn = void 0;
 exports.table = table;
-// <T> is a "Phantom Type". It tells TypeScript what kind of data this column holds.
-// RENAMED from 'Column' to 'DbColumn' to avoid conflict with the @Column decorator
+/**
+ * @deprecated Use the \`@Column\` decorator on a class that extends \`Model\` instead.
+ *
+ * <T> is a "Phantom Type" that tells TypeScript what kind of data this column holds.
+ * RENAMED from 'Column' to 'DbColumn' to avoid conflict with the @Column decorator.
+ */
 class DbColumn {
     constructor(type) {
         this.type = type;
@@ -22,15 +50,17 @@ class DbColumn {
     }
 }
 exports.DbColumn = DbColumn;
-// Helpers now return Typed DbColumns
+/** @deprecated Use \`@Column({ type: "int" })\` on a Model class instead. */
 const int = () => new DbColumn("INTEGER");
 exports.int = int;
+/** @deprecated Use \`@Column({ type: "text" })\` on a Model class instead. */
 const text = () => new DbColumn("TEXT");
 exports.text = text;
+/** @deprecated Use \`@Column({ type: "boolean" })\` on a Model class instead. */
 const bool = () => new DbColumn("BOOLEAN");
 exports.bool = bool;
+/** @deprecated Use a class that extends \`Model\` with \`@Column\` decorators instead. */
 class Table {
-    // We added 'relations' as an optional third argument
     constructor(tableName, columns, // Updated type
     relations = {}) {
         this.tableName = tableName;
@@ -62,7 +92,7 @@ class Table {
     }
 }
 exports.Table = Table;
-// 4. Updated 'table' function to capture types AND accept relations
+/** @deprecated Define your schema as a class extending \`Model\` instead. */
 function table(name, columns, relations = {}) {
     return new Table(name, columns, relations);
 }
